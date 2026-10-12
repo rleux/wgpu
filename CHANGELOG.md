@@ -223,6 +223,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### naga
 
+- Parse scalar GLSL combined 2D sampler uniforms and expose their image/sampler binding pairs.
 - Apply GLSL `texelFetchOffset` offsets to spatial coordinates without changing array layers.
 - Preserve buffer pointers when lowering GLSL runtime array length queries.
 - Spill GLSL vector component output arguments to preserve function copy-in and copy-back semantics.

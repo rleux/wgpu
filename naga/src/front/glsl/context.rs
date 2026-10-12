@@ -123,6 +123,20 @@ impl<'a> Context<'a> {
         for &(ref name, lookup) in frontend.global_variables.iter() {
             this.add_global(name, lookup)?
         }
+        for &(image, sampler) in &frontend.combined_samplers {
+            let image_expr = this
+                .expressions
+                .iter()
+                .find_map(|(handle, expr)| match *expr {
+                    Expression::GlobalVariable(var) if var == image => Some(handle),
+                    _ => None,
+                });
+            if let Some(image_expr) = image_expr {
+                let sampler_expr =
+                    this.add_expression(Expression::GlobalVariable(sampler), Span::UNDEFINED)?;
+                this.samplers.insert(image_expr, sampler_expr);
+            }
+        }
         this.is_const = is_const;
 
         Ok(this)
