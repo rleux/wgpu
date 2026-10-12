@@ -10,8 +10,43 @@ use crate::{
         token::{Token, TokenValue},
         Error, ErrorKind, Frontend, Result,
     },
-    AddressSpace, ArraySize, Handle, Span, Type, TypeInner,
+    AddressSpace, ArraySize, Handle, ScalarKind, Span, Type, TypeInner,
 };
+
+/// Precision qualifiers apply to 32-bit numeric types and opaque types.
+pub(super) fn check_precision_qualifier(
+    ctx: &Context,
+    mut ty: Handle<Type>,
+    meta: Span,
+) -> Result<()> {
+    while let TypeInner::Array { base, .. } = ctx.module.types[ty].inner {
+        debug_assert!(base < ty, "array element types must precede their arrays");
+        ty = base;
+    }
+    let allowed = match ctx.module.types[ty].inner {
+        TypeInner::Scalar(scalar)
+        | TypeInner::Vector { scalar, .. }
+        | TypeInner::Matrix { scalar, .. } => {
+            scalar.width == 4
+                && matches!(
+                    scalar.kind,
+                    ScalarKind::Float | ScalarKind::Sint | ScalarKind::Uint
+                )
+        }
+        TypeInner::Image { .. } | TypeInner::Sampler { .. } => true,
+        _ => false,
+    };
+    if allowed {
+        Ok(())
+    } else {
+        Err(Error {
+            kind: ErrorKind::SemanticError(
+                "precision qualifier is not allowed on this type".into(),
+            ),
+            meta,
+        })
+    }
+}
 
 impl ParsingContext<'_> {
     /// Parses an optional array_specifier returning whether or not it's present

@@ -1,6 +1,6 @@
 use alloc::{string::String, vec, vec::Vec};
 
-use super::{DeclarationContext, ParsingContext, Result};
+use super::{types::check_precision_qualifier, DeclarationContext, ParsingContext, Result};
 use crate::{
     front::glsl::{
         ast::{
@@ -634,8 +634,19 @@ impl ParsingContext<'_> {
 
         loop {
             // TODO: type_qualifier
+            let precision_span = if self
+                .peek(frontend)
+                .is_some_and(|t| matches!(t.value, TokenValue::PrecisionQualifier(_)))
+            {
+                Some(self.bump(frontend)?.meta)
+            } else {
+                None
+            };
 
             let (base_ty, mut meta) = self.parse_type_non_void(frontend, ctx)?;
+            if let Some(precision_span) = precision_span {
+                check_precision_qualifier(ctx, base_ty, precision_span)?;
+            }
 
             loop {
                 let (name, name_meta) = self.expect_ident(frontend)?;
