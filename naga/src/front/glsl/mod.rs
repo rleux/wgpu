@@ -100,6 +100,9 @@ pub struct ShaderMetadata {
     /// This field only stores extensions which were required or requested to
     /// be enabled if possible and they are supported.
     pub extensions: FastHashSet<String>,
+    /// Image and synthetic sampler bindings originating from combined uniforms.
+    /// These bindings remain valid after module compaction.
+    pub combined_samplers: Vec<(crate::ResourceBinding, crate::ResourceBinding)>,
 }
 
 impl ShaderMetadata {
@@ -110,6 +113,7 @@ impl ShaderMetadata {
         self.workgroup_size = [u32::from(stage.compute_like()); 3];
         self.early_fragment_tests = false;
         self.extensions.clear();
+        self.combined_samplers.clear();
     }
 }
 
@@ -122,6 +126,7 @@ impl Default for ShaderMetadata {
             workgroup_size: [0; 3],
             early_fragment_tests: false,
             extensions: FastHashSet::default(),
+            combined_samplers: Vec::new(),
         }
     }
 }
@@ -173,6 +178,7 @@ pub struct Frontend {
     global_variables: Vec<(String, GlobalLookup)>,
 
     entry_args: Vec<EntryArg>,
+    combined_samplers: Vec<(Handle<crate::GlobalVariable>, Handle<crate::GlobalVariable>)>,
 
     layouter: Layouter,
 
@@ -187,7 +193,33 @@ impl Frontend {
         self.lookup_type.clear();
         self.global_variables.clear();
         self.entry_args.clear();
+        self.combined_samplers.clear();
         self.layouter.clear();
+    }
+
+    fn assign_combined_sampler_bindings(&mut self, module: &mut Module) {
+        let mut used_bindings: FastHashSet<_> = module
+            .global_variables
+            .iter()
+            .filter_map(|(_, var)| var.binding)
+            .collect();
+        let mut next_binding = 0;
+        for &(image, sampler) in &self.combined_samplers {
+            let binding = loop {
+                let binding = crate::ResourceBinding {
+                    group: u32::MAX,
+                    binding: next_binding,
+                };
+                next_binding += 1;
+                if used_bindings.insert(binding) {
+                    break binding;
+                }
+            };
+            module.global_variables[sampler].binding = Some(binding);
+            if let Some(image_binding) = module.global_variables[image].binding {
+                self.meta.combined_samplers.push((image_binding, binding));
+            }
+        }
     }
 
     /// Parses a shader either outputting a shader [`Module`] or a list of
@@ -205,7 +237,8 @@ impl Frontend {
         let mut ctx = ParsingContext::new(lexer);
 
         match ctx.parse(self) {
-            Ok(module) => {
+            Ok(mut module) => {
+                self.assign_combined_sampler_bindings(&mut module);
                 if self.errors.is_empty() {
                     Ok(module)
                 } else {

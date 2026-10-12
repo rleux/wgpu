@@ -423,6 +423,28 @@ impl ParsingContext<'_> {
                 let token = self.bump(frontend)?;
                 match token.value {
                     TokenValue::Identifier(ty_name) => {
+                        let sampler_kind = match ty_name.as_str() {
+                            "sampler2D" => Some(ScalarKind::Float),
+                            "isampler2D" => Some(ScalarKind::Sint),
+                            "usampler2D" => Some(ScalarKind::Uint),
+                            _ => None,
+                        };
+                        if let Some(kind) = sampler_kind {
+                            if !external
+                                || qualifiers.storage.0
+                                    != StorageQualifier::AddressSpace(AddressSpace::Uniform)
+                            {
+                                return Err(Error {
+                                    kind: ErrorKind::SemanticError(
+                                        "combined samplers require a uniform declaration".into(),
+                                    ),
+                                    meta: token.meta,
+                                });
+                            }
+                            return self
+                                .parse_combined_sampler(frontend, ctx, &mut qualifiers, kind)
+                                .map(Some);
+                        }
                         if self.bump_if(frontend, TokenValue::LeftBrace).is_some() {
                             self.parse_block_declaration(
                                 frontend,
@@ -529,6 +551,61 @@ impl ParsingContext<'_> {
                 _ => Ok(None),
             }
         }
+    }
+
+    fn parse_combined_sampler(
+        &mut self,
+        frontend: &mut Frontend,
+        ctx: &mut Context,
+        qualifiers: &mut TypeQualifiers,
+        kind: ScalarKind,
+    ) -> Result<Span> {
+        let (name, meta) = self.expect_ident(frontend)?;
+        self.expect(frontend, TokenValue::Semicolon)?;
+        let image_ty = ctx.module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Image {
+                    dim: crate::ImageDimension::D2,
+                    arrayed: false,
+                    class: crate::ImageClass::Sampled { kind, multi: false },
+                },
+            },
+            meta,
+        );
+        let image = frontend.add_global_var(
+            ctx,
+            VarDeclaration {
+                qualifiers,
+                ty: image_ty,
+                name: Some(name.clone()),
+                init: None,
+                meta,
+            },
+        )?;
+        let GlobalOrConstant::Global(image) = image else {
+            unreachable!("uniform declarations create global variables")
+        };
+        let sampler_ty = ctx.module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Sampler { comparison: false },
+            },
+            meta,
+        );
+        let sampler = ctx.module.global_variables.append(
+            crate::GlobalVariable {
+                name: Some(alloc::format!("{name}_sampler")),
+                space: AddressSpace::Handle,
+                binding: None,
+                ty: sampler_ty,
+                init: None,
+                memory_decorations: crate::MemoryDecorations::empty(),
+            },
+            meta,
+        );
+        frontend.combined_samplers.push((image, sampler));
+        Ok(meta)
     }
 
     pub fn parse_block_declaration(

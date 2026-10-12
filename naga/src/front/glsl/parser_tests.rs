@@ -11,6 +11,8 @@ use super::{
 };
 use crate::ShaderStage;
 
+mod combined_samplers;
+
 #[cfg(test)]
 use std::println;
 
