@@ -456,6 +456,15 @@ impl Frontend {
                         _ => None,
                     });
 
+                if blend_src.is_some() && (input || self.meta.stage != ShaderStage::Fragment) {
+                    return Err(Error {
+                        kind: ErrorKind::SemanticError(
+                            "index is only valid on fragment outputs".into(),
+                        ),
+                        meta,
+                    });
+                }
+
                 let mut binding = Binding::Location {
                     location,
                     interpolation,

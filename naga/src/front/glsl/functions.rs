@@ -1221,6 +1221,33 @@ impl Frontend {
         mut ctx: Context,
     ) -> Result<()> {
         let mut arguments = Vec::new();
+        let uses_dual_source_blending = self.entry_args.iter().any(|arg| {
+            arg.storage == StorageQualifier::Output
+                && matches!(
+                    arg.binding,
+                    crate::Binding::Location {
+                        blend_src: Some(1),
+                        ..
+                    }
+                )
+        });
+        if self.meta.stage == crate::ShaderStage::Fragment {
+            for arg in &mut self.entry_args {
+                if arg.storage != StorageQualifier::Output {
+                    continue;
+                }
+                if let crate::Binding::Location {
+                    ref mut blend_src, ..
+                } = arg.binding
+                {
+                    if uses_dual_source_blending {
+                        *blend_src = Some(blend_src.unwrap_or(0));
+                    } else if *blend_src == Some(0) {
+                        *blend_src = None;
+                    }
+                }
+            }
+        }
 
         let body = Block::with_capacity(
             // global init body
