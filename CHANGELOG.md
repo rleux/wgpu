@@ -223,6 +223,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### naga
 
+- Spill GLSL vector component output arguments to preserve function copy-in and copy-back semantics.
 - Use natural layout for GLSL value structs and convert aggregate copies to and from buffer layouts.
 - Flatten GLSL matrix stage interfaces with correct locations for arrays and blocks, preserving explicit sampling qualifiers.
 - Fix GLSL component and swizzle access through matrix columns.
