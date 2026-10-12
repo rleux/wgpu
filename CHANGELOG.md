@@ -223,6 +223,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### naga
 
+- Use natural layout for GLSL value structs and convert aggregate copies to and from buffer layouts.
 - Flatten GLSL matrix stage interfaces with correct locations for arrays and blocks, preserving explicit sampling qualifiers.
 - Fix GLSL component and swizzle access through matrix columns.
 - Reject unsigned integer arguments to WGSL `sign()` during Naga validation instead of allowing them to reach and panic in the SPIR-V backend. By @notferdon in [#10451](https://github.com/gfx-rs/wgpu/pull/10451).

@@ -87,8 +87,8 @@ OpBranch %35
 %43 = OpAccessChain  %22  %15 %36
 %44 = OpLoad  %4  %43
 %45 = OpFAdd  %4  %42 %44
-%46 = OpLoad  %9  %18
-%47 = OpCompositeExtract  %4  %46 0
+%46 = OpAccessChain  %22  %18 %36
+%47 = OpLoad  %4  %46
 %48 = OpFAdd  %4  %45 %47
 %49 = OpLoad  %4  %21
 %50 = OpFAdd  %4  %48 %49

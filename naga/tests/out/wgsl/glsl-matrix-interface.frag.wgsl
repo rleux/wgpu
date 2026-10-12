@@ -16,8 +16,8 @@ fn main_1() {
     let _e8 = transforms_6[1][2];
     let _e9 = (_e5 + _e8);
     let _e12 = data.basis[1];
-    let _e13 = data;
-    let _e15 = (_e12 + _e13.offset);
+    let _e14 = data.offset;
+    let _e15 = (_e12 + _e14);
     color = vec4<f32>(_e9.x, _e9.y, _e15.x, _e15.y);
     return;
 }

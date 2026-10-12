@@ -39,3 +39,44 @@ fn atomic_compare_exchange_roundtrip_to_spirv() {
     let parsed_info = validator.validate(&parsed).unwrap();
     naga::back::spv::write_vec(&parsed, &parsed_info, &options, Some(&pipeline_options)).unwrap();
 }
+
+#[test]
+fn glsl_scalar_field_read_next_to_large_array() {
+    // Reconstructing the unused array would require 65,536 words in one
+    // OpCompositeConstruct, exceeding SPIR-V's 16-bit instruction word count.
+    let module = naga::front::glsl::Frontend::default()
+        .parse(
+            &naga::front::glsl::Options::from(naga::ShaderStage::Vertex),
+            r#"
+                #version 450
+                struct Data { float unused[65533]; float value; };
+                layout(set = 0, binding = 0, std140) readonly buffer Buffer {
+                    Data data;
+                } buffer_data;
+                void main() {
+                    gl_Position = vec4(buffer_data.data.value);
+                }
+            "#,
+        )
+        .unwrap();
+
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
+    let pipeline_options = naga::back::spv::PipelineOptions {
+        entry_point: "main".to_string(),
+        shader_stage: naga::ShaderStage::Vertex,
+    };
+    let words = naga::back::spv::write_vec(
+        &module,
+        &info,
+        &naga::back::spv::Options::default(),
+        Some(&pipeline_options),
+    )
+    .unwrap();
+
+    rspirv::dr::load_words(&words).expect("scalar field read produced malformed SPIR-V");
+}

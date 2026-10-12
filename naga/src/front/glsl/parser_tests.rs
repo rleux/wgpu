@@ -15,6 +15,8 @@ mod matrix_components;
 
 mod matrix_interfaces;
 
+mod aggregate_layouts;
+
 #[cfg(test)]
 use std::println;
 

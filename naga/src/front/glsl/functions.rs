@@ -850,15 +850,7 @@ impl Frontend {
                         ctx.conversion(&mut value, meta, scalar)?;
                     }
 
-                    ctx.emit_restart();
-
-                    ctx.body.push(
-                        Statement::Store {
-                            pointer: proxy_write.target,
-                            value,
-                        },
-                        meta,
-                    );
+                    ctx.lower_store(proxy_write.target, value, meta)?;
                 }
 
                 Ok(result)
@@ -899,7 +891,9 @@ impl Frontend {
             // If the argument is a pointer whose address space isn't `Function`, an
             // indirection through a local variable is needed to align the address
             // spaces of the call argument and the overload parameter.
-            TypeInner::Pointer { base, space } if space != AddressSpace::Function => Some(base),
+            TypeInner::Pointer { space, .. } if space != AddressSpace::Function => {
+                Some(parameter_ty)
+            }
             TypeInner::ValuePointer {
                 size,
                 scalar,

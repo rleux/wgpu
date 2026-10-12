@@ -17,10 +17,10 @@ fn main_1() {
     let _e8 = transforms_4[0][0];
     let _e11 = transforms_4[1][1];
     let _e14 = basis_2[0];
-    let _e16 = data;
+    let _e17 = data.offset;
     let _e19 = bias_1;
     let _e21 = scale_1;
-    let _e22 = (((((_e8 + _e11) + _e14) + _e16.offset) + _e19) * _e21);
+    let _e22 = (((((_e8 + _e11) + _e14) + _e17) + _e19) * _e21);
     color = vec4<f32>(_e22.x, _e22.y, 0f, 1f);
     return;
 }
