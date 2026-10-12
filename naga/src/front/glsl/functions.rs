@@ -30,6 +30,53 @@ struct ProxyWrite {
     convert: Option<Scalar>,
 }
 
+struct CallArgument {
+    expr: Handle<Expression>,
+    meta: Span,
+    target: Option<Handle<Expression>>,
+}
+
+impl CallArgument {
+    fn output_target(&self, ctx: &mut Context) -> Result<Handle<Expression>> {
+        let meta = self.meta;
+        let target = self.target.ok_or_else(|| Error {
+            kind: ErrorKind::SemanticError("output argument must be a writable lvalue".into()),
+            meta,
+        })?;
+        if let Expression::Swizzle { size, pattern, .. } = ctx.expressions[target] {
+            let components = &pattern[..size as usize];
+            if (1..components.len())
+                .any(|index| components[index..].contains(&components[index - 1]))
+            {
+                return Err(Error {
+                    kind: ErrorKind::SemanticError(
+                        "output argument swizzle cannot have duplicate components".into(),
+                    ),
+                    meta,
+                });
+            }
+        } else if ctx.resolve_type(target, meta)?.pointer_space().is_none() {
+            return Err(Error {
+                kind: ErrorKind::SemanticError("output argument must be a writable lvalue".into()),
+                meta,
+            });
+        }
+
+        Ok(target)
+    }
+}
+
+fn is_mutable_reference(stmt: &StmtContext, mut expression: Handle<HirExpr>) -> bool {
+    // Bases are appended before their parents, so each step follows a smaller handle.
+    while let HirExprKind::Access { base, .. } | HirExprKind::Select { base, .. } =
+        stmt.hir_exprs[expression].kind
+    {
+        debug_assert!(base < expression, "HIR bases must precede their parents");
+        expression = base;
+    }
+    matches!(stmt.hir_exprs[expression].kind, HirExprKind::Variable(ref variable) if variable.mutable)
+}
+
 impl Frontend {
     pub(crate) fn function_or_constructor_call(
         &mut self,
@@ -39,13 +86,12 @@ impl Frontend {
         raw_args: &[Handle<HirExpr>],
         meta: Span,
     ) -> Result<Option<Handle<Expression>>> {
-        let args: Vec<_> = raw_args
-            .iter()
-            .map(|e| ctx.lower_expect_inner(stmt, self, *e, ExprPos::Rhs))
-            .collect::<Result<_>>()?;
-
         match fc {
             FunctionCallKind::TypeConstructor(ty) => {
+                let args: Vec<_> = raw_args
+                    .iter()
+                    .map(|&argument| ctx.lower_expect_inner(stmt, self, argument, ExprPos::Rhs))
+                    .collect::<Result<_>>()?;
                 if args.len() == 1 {
                     self.constructor_single(ctx, ty, args[0], meta).map(Some)
                 } else {
@@ -53,9 +99,63 @@ impl Frontend {
                 }
             }
             FunctionCallKind::Function(name) => {
-                self.function_call(ctx, stmt, name, args, raw_args, meta)
+                let mut output_parameters = vec![false; raw_args.len()];
+                if let Some(declaration) = self.lookup_function.get(&name) {
+                    for overload in &declaration.overloads {
+                        for (output, parameter) in
+                            output_parameters.iter_mut().zip(&overload.parameters_info)
+                        {
+                            *output |= parameter.qualifier.is_lhs();
+                        }
+                    }
+                }
+                let args = raw_args
+                    .iter()
+                    .zip(output_parameters)
+                    .map(|(&argument, output)| {
+                        self.lower_call_argument(ctx, stmt, argument, output)
+                    })
+                    .collect::<Result<_>>()?;
+                self.function_call(ctx, name, args, meta)
             }
         }
+    }
+
+    fn lower_call_argument(
+        &mut self,
+        ctx: &mut Context,
+        stmt: &StmtContext,
+        argument: Handle<HirExpr>,
+        output: bool,
+    ) -> Result<CallArgument> {
+        if !output || !is_mutable_reference(stmt, argument) {
+            let (expr, meta) = ctx.lower_expect_inner(stmt, self, argument, ExprPos::Rhs)?;
+            return Ok(CallArgument {
+                expr,
+                meta,
+                target: None,
+            });
+        }
+
+        // Keep the address and copy-in value from the same evaluation.
+        let (target, meta) = ctx.lower_expect_inner(
+            stmt,
+            self,
+            argument,
+            ExprPos::AccessBase {
+                constant_index: true,
+            },
+        )?;
+        let expr = if ctx.resolve_type(target, meta)?.pointer_space().is_some() {
+            ctx.add_expression(Expression::Load { pointer: target }, meta)?
+        } else {
+            target
+        };
+        Ok(CallArgument {
+            expr,
+            meta,
+            target: Some(target),
+        })
     }
 
     fn constructor_single(
@@ -515,21 +615,19 @@ impl Frontend {
     fn function_call(
         &mut self,
         ctx: &mut Context,
-        stmt: &StmtContext,
         name: String,
-        args: Vec<(Handle<Expression>, Span)>,
-        raw_args: &[Handle<HirExpr>],
+        args: Vec<CallArgument>,
         meta: Span,
     ) -> Result<Option<Handle<Expression>>> {
         // Grow the typifier to be able to index it later without needing
         // to hold the context mutably
-        for &(expr, span) in args.iter() {
-            ctx.typifier_grow(expr, span)?;
+        for argument in &args {
+            ctx.typifier_grow(argument.expr, argument.meta)?;
         }
 
         // Check if the passed arguments require any special variations
         let mut variations =
-            builtin_required_variations(args.iter().map(|&(expr, _)| ctx.get_type(expr)));
+            builtin_required_variations(args.iter().map(|argument| ctx.get_type(argument.expr)));
 
         // Initiate the declaration if it wasn't previously initialized and inject builtins
         let declaration = self.lookup_function.entry(name.clone()).or_insert_with(|| {
@@ -580,14 +678,19 @@ impl Frontend {
                 // If the image is used in the overload as a depth texture convert it
                 // before comparing, otherwise exact matches wouldn't be reported
                 if parameter_info.depth {
-                    sampled_to_depth(ctx, call_argument.0, call_argument.1, &mut self.errors);
-                    ctx.invalidate_expression(call_argument.0, call_argument.1)?
+                    sampled_to_depth(
+                        ctx,
+                        call_argument.expr,
+                        call_argument.meta,
+                        &mut self.errors,
+                    );
+                    ctx.invalidate_expression(call_argument.expr, call_argument.meta)?
                 }
 
-                ctx.typifier_grow(call_argument.0, call_argument.1)?;
+                ctx.typifier_grow(call_argument.expr, call_argument.meta)?;
 
                 let overload_param_ty = &ctx.module.types[*overload_parameter].inner;
-                let call_arg_ty = ctx.get_type(call_argument.0);
+                let call_arg_ty = ctx.get_type(call_argument.expr);
 
                 log::trace!(
                     "Testing parameter {i}\n\tOverload = {overload_param_ty:?}\n\tCall = {call_arg_ty:?}"
@@ -780,23 +883,20 @@ impl Frontend {
         let mut proxy_writes = Vec::new();
 
         // Iterate through the function call arguments applying transformations as needed
-        for (((parameter_info, call_argument), expr), parameter) in parameters_info
-            .iter()
-            .zip(&args)
-            .zip(raw_args)
-            .zip(&parameters)
+        for ((parameter_info, argument), parameter) in
+            parameters_info.iter().zip(&args).zip(&parameters)
         {
             if parameter_info.qualifier.is_lhs() {
-                // Reprocess argument in LHS position
-                let (handle, meta) = ctx.lower_expect_inner(stmt, self, *expr, ExprPos::Lhs)?;
+                let meta = argument.meta;
+                let target = argument.output_target(ctx)?;
 
                 self.process_lhs_argument(
                     ctx,
                     meta,
                     *parameter,
                     parameter_info,
-                    handle,
-                    call_argument,
+                    target,
+                    argument,
                     &mut proxy_writes,
                     &mut arguments,
                 )?;
@@ -804,7 +904,8 @@ impl Frontend {
                 continue;
             }
 
-            let (mut handle, meta) = *call_argument;
+            let mut handle = argument.expr;
+            let meta = argument.meta;
 
             let scalar_comps = scalar_components(&ctx.module.types[*parameter].inner);
 
@@ -869,12 +970,15 @@ impl Frontend {
         parameter_ty: Handle<Type>,
         parameter_info: &ParameterInfo,
         original: Handle<Expression>,
-        call_argument: &(Handle<Expression>, Span),
+        call_argument: &CallArgument,
         proxy_writes: &mut Vec<ProxyWrite>,
         arguments: &mut Vec<Handle<Expression>>,
     ) -> Result<()> {
+        let is_variable = matches!(
+            ctx.expressions[original],
+            Expression::LocalVariable(_) | Expression::FunctionArgument(_)
+        );
         let original_ty = ctx.resolve_type(original, meta)?;
-        let original_pointer_space = original_ty.pointer_space();
 
         // The type of a possible spill variable needed for a proxy write
         let mut maybe_ty = match *original_ty {
@@ -888,17 +992,11 @@ impl Frontend {
                 },
                 Span::default(),
             )),
-            // If the argument is a pointer whose address space isn't `Function`, an
-            // indirection through a local variable is needed to align the address
-            // spaces of the call argument and the overload parameter.
-            TypeInner::Pointer { space, .. } if space != AddressSpace::Function => {
+            // Calls need Function-space variables rather than pointers into composites.
+            TypeInner::Pointer { space, .. } if space != AddressSpace::Function || !is_variable => {
                 Some(parameter_ty)
             }
-            TypeInner::ValuePointer {
-                size,
-                scalar,
-                space,
-            } if space != AddressSpace::Function => {
+            TypeInner::ValuePointer { size, scalar, .. } => {
                 let inner = match size {
                     Some(size) => TypeInner::Vector { size, scalar },
                     None => TypeInner::Scalar(scalar),
@@ -913,18 +1011,12 @@ impl Frontend {
             _ => None,
         };
 
-        // Since the original expression might be a pointer and we want a value
-        // for the proxy writes, we might need to load the pointer.
-        let value = if original_pointer_space.is_some() {
-            ctx.add_expression(Expression::Load { pointer: original }, Span::default())?
-        } else {
-            original
-        };
+        let value = call_argument.expr;
 
-        ctx.typifier_grow(call_argument.0, call_argument.1)?;
+        ctx.typifier_grow(call_argument.expr, call_argument.meta)?;
 
         let overload_param_ty = &ctx.module.types[parameter_ty].inner;
-        let call_arg_ty = ctx.get_type(call_argument.0);
+        let call_arg_ty = ctx.get_type(call_argument.expr);
         let needs_conversion = call_arg_ty != overload_param_ty;
 
         let arg_scalar_comps = scalar_components(call_arg_ty);

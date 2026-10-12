@@ -66,15 +66,15 @@ fn main_1() {
     local.values[1i] = _e44;
     let _e46 = local;
     target_.value = Nested_1(array<Values_1, 2>(Values_1(array<f32, 2>(_e46.values[0].items[0], _e46.values[0].items[1])), Values_1(array<f32, 2>(_e46.values[1].items[0], _e46.values[1].items[1]))), _e46.offset);
-    let _e67 = target_.value.values[0i];
-    local_1 = Values(array<f32, 2>(_e67.items[0], _e67.items[1]));
+    let _e66 = target_.value.values[0];
+    local_1 = Values(array<f32, 2>(_e66.items[0], _e66.items[1]));
     change((&local_1));
-    let _e74 = local_1;
-    target_.value.values[0i] = Values_1(array<f32, 2>(_e74.items[0], _e74.items[1]));
-    let _e85 = local.values[0].items[1];
-    let _e90 = local.values[1].items[1];
-    let _e91 = local;
-    gl_Position = vec4<f32>(_e85, _e90, _e91.offset.x, _e91.offset.y);
+    let _e73 = local_1;
+    target_.value.values[0] = Values_1(array<f32, 2>(_e73.items[0], _e73.items[1]));
+    let _e84 = local.values[0].items[1];
+    let _e89 = local.values[1].items[1];
+    let _e90 = local;
+    gl_Position = vec4<f32>(_e84, _e89, _e90.offset.x, _e90.offset.y);
     return;
 }
 

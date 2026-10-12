@@ -1,0 +1,37 @@
+#version 450
+layout(local_size_x=1) in;
+layout(set=0,binding=0,std430) buffer Output { uint values[12]; } output_data;
+
+void increment(inout float value) { value += 1.0; }
+void assign(out float value) { value = 5.0; }
+void add(inout float value, float amount) { value += amount; }
+void change_pair(inout float first, inout float second) { first = 3.0; second = 4.0; }
+
+void record(int offset, float first, float second, int index) {
+    output_data.values[offset] = uint(first);
+    output_data.values[offset + 1] = uint(second);
+    output_data.values[offset + 2] = uint(index);
+}
+
+void main() {
+    mat4 matrix = mat4(0.0);
+    int index = 0;
+    increment(matrix[index++].x);
+    record(0, matrix[0].x, matrix[1].x, index);
+
+    matrix = mat4(0.0);
+    index = 0;
+    assign(matrix[index++].y);
+    record(3, matrix[0].y, matrix[1].y, index);
+
+    matrix = mat4(0.0);
+    matrix[0].x = 2.0;
+    index = 0;
+    add(matrix[index++].x, (matrix[0].x = 9.0));
+    record(6, matrix[0].x, matrix[1].x, index);
+
+    matrix = mat4(0.0);
+    index = 0;
+    change_pair(matrix[index++].x, matrix[index++].y);
+    record(9, matrix[0].x, matrix[1].y, index);
+}
