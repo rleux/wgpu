@@ -1,6 +1,7 @@
 mod example_wgsl;
 mod snapshots;
 mod spirv_capabilities;
+mod spirv_combined_samplers;
 mod spirv_debug_info;
 mod spirv_roundtrip;
 mod validation;

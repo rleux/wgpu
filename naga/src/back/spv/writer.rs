@@ -6,7 +6,9 @@ use spirv::Word;
 
 use super::{
     block::DebugInfoInner,
-    helpers::{contains_builtin, global_needs_wrapper, map_storage_class},
+    helpers::{
+        contains_builtin, function_matches_entry_point, global_needs_wrapper, map_storage_class,
+    },
     Block, BlockContext, CachedConstant, CachedExpressions, CooperativeType, DebugInfo,
     EntryPointContext, Error, Function, FunctionArgument, GlobalVariable, IdGenerator, Instruction,
     LocalImageType, LocalType, LocalVariable, LogicalLayout, LookupFunctionType, LookupType,
@@ -109,6 +111,9 @@ impl Writer {
             std140_compat_uniform_types: crate::FastHashMap::default(),
             fake_missing_bindings: options.fake_missing_bindings,
             binding_map: options.binding_map.clone(),
+            combined_image_sampler_bindings: Vec::new(),
+            combined_image_samplers: Default::default(),
+            combined_sampler_images: Default::default(),
             saved_cached: CachedExpressions::default(),
             gl450_ext_inst_id,
             temp_list: Vec::new(),
@@ -180,6 +185,9 @@ impl Writer {
             capabilities_available: take(&mut self.capabilities_available),
             fake_missing_bindings: self.fake_missing_bindings,
             binding_map: take(&mut self.binding_map),
+            combined_image_sampler_bindings: take(&mut self.combined_image_sampler_bindings),
+            combined_image_samplers: Default::default(),
+            combined_sampler_images: Default::default(),
             task_dispatch_limits: self.task_dispatch_limits,
             mesh_shader_primitive_indices_clamp: self.mesh_shader_primitive_indices_clamp,
             emit_int_div_checks: self.emit_int_div_checks,
@@ -1528,7 +1536,7 @@ impl Writer {
             gv.reset_for_function();
         }
         for (handle, var) in ir_module.global_variables.iter() {
-            if info[handle].is_empty() {
+            if info[handle].is_empty() || self.combined_sampler_images.contains_key(&handle) {
                 continue;
             }
 
@@ -1550,9 +1558,27 @@ impl Writer {
                     if var.space == crate::AddressSpace::Handle {
                         let var_type_id = self.get_handle_type_id(var.ty);
                         let id = self.id_gen.next();
-                        prelude
-                            .body
-                            .push(Instruction::load(var_type_id, id, gv.var_id, None));
+                        if self.combined_image_samplers.contains_key(&handle) {
+                            let sampled_type =
+                                self.get_type_id(LookupType::Local(LocalType::SampledImage {
+                                    image_type_id: var_type_id,
+                                }));
+                            let sampled_id = self.id_gen.next();
+                            prelude.body.push(Instruction::load(
+                                sampled_type,
+                                sampled_id,
+                                gv.var_id,
+                                None,
+                            ));
+                            prelude
+                                .body
+                                .push(Instruction::image(var_type_id, id, sampled_id));
+                            gv.sampled_id = sampled_id;
+                        } else {
+                            prelude
+                                .body
+                                .push(Instruction::load(var_type_id, id, gv.var_id, None));
+                        }
                         gv.access_id = gv.var_id;
                         gv.handle_id = id;
                     } else if global_needs_wrapper(ir_module, var) {
@@ -3453,6 +3479,7 @@ impl Writer {
         &mut self,
         ir_module: &crate::Module,
         global_variable: &crate::GlobalVariable,
+        combined: bool,
     ) -> Result<Word, Error> {
         use spirv::Decoration;
 
@@ -3538,8 +3565,17 @@ impl Writer {
             substitute_inner_type_lookup.unwrap_or(LookupType::Handle(global_variable.ty)),
         );
 
+        let inner_type_id = if combined {
+            self.get_type_id(LookupType::Local(LocalType::SampledImage {
+                image_type_id: inner_type_id,
+            }))
+        } else {
+            inner_type_id
+        };
         // generate the wrapping structure if needed
-        let pointer_type_id = if global_needs_wrapper(ir_module, global_variable) {
+        let pointer_type_id = if combined {
+            self.get_pointer_type_id(inner_type_id, class)
+        } else if global_needs_wrapper(ir_module, global_variable) {
             let wrapper_type_id = self.id_gen.next();
 
             self.decorate(wrapper_type_id, Decoration::Block, &[]);
@@ -3844,6 +3880,11 @@ impl Writer {
 
         // write all global variables
         for (handle, var) in ir_module.global_variables.iter() {
+            if self.combined_sampler_images.contains_key(&handle) {
+                self.global_variables
+                    .insert(handle, GlobalVariable::dummy());
+                continue;
+            }
             // If a single entry point was specified, only write `OpVariable` instructions
             // for the globals it actually uses. Emit dummies for the others,
             // to preserve the indices in `global_variables`.
@@ -3852,7 +3893,11 @@ impl Writer {
                     GlobalVariable::dummy()
                 }
                 _ => {
-                    let id = self.write_global_variable(ir_module, var)?;
+                    let id = self.write_global_variable(
+                        ir_module,
+                        var,
+                        self.combined_image_samplers.contains_key(&handle),
+                    )?;
                     GlobalVariable::new(id)
                 }
             };
@@ -3864,24 +3909,8 @@ impl Writer {
             let info = &mod_info[handle];
             if let Some(index) = ep_index {
                 let ep_info = mod_info.get_entry_point(index);
-                // If this function uses globals that we omitted from the SPIR-V
-                // because the entry point and its callees didn't use them,
-                // then we must skip it.
-                if !ep_info.dominates_global_use(info) {
+                if !function_matches_entry_point(info, ep_info) {
                     log::debug!("Skip function {:?}", ir_function.name);
-                    continue;
-                }
-
-                // Skip functions that that are not compatible with this entry point's stage.
-                //
-                // When validation is enabled, it rejects modules whose entry points try to call
-                // incompatible functions, so if we got this far, then any functions incompatible
-                // with our selected entry point must not be used.
-                //
-                // When validation is disabled, `fun_info.available_stages` is always just
-                // `ShaderStages::all()`, so this will write all functions in the module, and
-                // the downstream GLSL compiler will catch any problems.
-                if !info.available_stages.contains(ep_info.available_stages) {
                     continue;
                 }
             }
@@ -3944,6 +3973,20 @@ impl Writer {
         Ok(())
     }
 
+    /// Emit image/sampler binding pairs as combined descriptors at the image bindings.
+    ///
+    /// Bindings survive module compaction. Unused pairs may be absent, and the sampler
+    /// may be absent for fetch-only images. Mapped resources cannot be passed to functions.
+    /// When selecting an entry point, resolve bindings and check resource uses only
+    /// for the globals and functions emitted for that entry point.
+    /// Call with an empty iterator to restore separate descriptors when reusing a writer.
+    pub fn set_combined_image_samplers(
+        &mut self,
+        pairs: impl IntoIterator<Item = (crate::ResourceBinding, crate::ResourceBinding)>,
+    ) {
+        self.combined_image_sampler_bindings = pairs.into_iter().collect();
+    }
+
     pub fn write(
         &mut self,
         ir_module: &crate::Module,
@@ -3967,6 +4010,7 @@ impl Writer {
             None => None,
         };
 
+        self.prepare_combined_image_samplers(ir_module, info, ep_index)?;
         self.write_logical_layout(ir_module, info, ep_index, debug_info)?;
         self.write_physical_layout();
 

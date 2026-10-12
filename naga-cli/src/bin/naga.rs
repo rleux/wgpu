@@ -410,6 +410,7 @@ struct Parameters<'a> {
     overrides: naga::back::PipelineConstants,
     spv_in: naga::front::spv::Options,
     spv_out: naga::back::spv::Options<'a>,
+    combined_samplers: Vec<(naga::ResourceBinding, naga::ResourceBinding)>,
     dot: naga::back::dot::Options,
     msl: naga::back::msl::Options,
     glsl: naga::back::glsl::Options,
@@ -606,7 +607,9 @@ fn run() -> anyhow::Result<()> {
         mut module,
         input_text,
         language,
+        combined_samplers,
     } = parse_input(input_path, input, &params)?;
+    params.combined_samplers = combined_samplers;
 
     // Include debugging information if requested.
     if args.generate_debug_symbols {
@@ -731,6 +734,7 @@ struct Parsed {
     module: naga::Module,
     input_text: Option<String>,
     language: naga::back::spv::SourceLanguage,
+    combined_samplers: Vec<(naga::ResourceBinding, naga::ResourceBinding)>,
 }
 
 fn parse_input(input_path: &Path, input: Vec<u8>, params: &Parameters) -> anyhow::Result<Parsed> {
@@ -750,11 +754,13 @@ fn parse_input(input_path: &Path, input: Vec<u8>, params: &Parameters) -> anyhow
             module: bincode::serde::decode_from_slice(&input, bincode::config::standard())?.0,
             input_text: None,
             language: naga::back::spv::SourceLanguage::Unknown,
+            combined_samplers: Vec::new(),
         },
         InputKind::SpirV => Parsed {
             module: naga::front::spv::parse_u8_slice(&input, &params.spv_in)?,
             input_text: None,
             language: naga::back::spv::SourceLanguage::Unknown,
+            combined_samplers: Vec::new(),
         },
         InputKind::Wgsl => {
             let input = String::from_utf8(input)?;
@@ -769,6 +775,7 @@ fn parse_input(input_path: &Path, input: Vec<u8>, params: &Parameters) -> anyhow
                     module: v,
                     input_text: Some(input),
                     language: naga::back::spv::SourceLanguage::WGSL,
+                    combined_samplers: Vec::new(),
                 },
                 Err(ref e) => {
                     let message = anyhow!(
@@ -818,6 +825,7 @@ fn parse_input(input_path: &Path, input: Vec<u8>, params: &Parameters) -> anyhow
                     }),
                 input_text: Some(input),
                 language: naga::back::spv::SourceLanguage::GLSL,
+                combined_samplers: parser.metadata().combined_samplers.clone(),
             }
         }
     })
@@ -904,7 +912,17 @@ fn write_output(
             )
             .unwrap_pretty();
 
-            let spv = spv::write_vec(&module, &info, &params.spv_out, pipeline_options.as_ref())
+            let mut writer = spv::Writer::new(&params.spv_out).unwrap_pretty();
+            writer.set_combined_image_samplers(params.combined_samplers.iter().copied());
+            let mut spv = Vec::new();
+            writer
+                .write(
+                    &module,
+                    &info,
+                    pipeline_options.as_ref(),
+                    &params.spv_out.debug_info,
+                    &mut spv,
+                )
                 .unwrap_pretty();
             let bytes = spv
                 .iter()
@@ -1031,6 +1049,7 @@ fn bulk_validate(args: &Args, params: &Parameters) -> anyhow::Result<()> {
             module,
             input_text,
             language: _,
+            combined_samplers: _,
         } = match parse_input(path, input, params) {
             Ok(parsed) => parsed,
             Err(error) => {
