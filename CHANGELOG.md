@@ -223,6 +223,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### naga
 
+- Accept standalone GLSL fragment output index zero while preserving dual-source blending.
 - Resolve GLSL calls through forward declarations and reject recursive call graphs.
 - Flatten GLSL matrix stage interfaces with correct locations for arrays and blocks, preserving explicit sampling qualifiers.
 - Fix GLSL component and swizzle access through matrix columns.
