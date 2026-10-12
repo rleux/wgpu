@@ -29,6 +29,7 @@ mod error;
 mod functions;
 mod lex;
 mod offset;
+mod order;
 mod parser;
 #[cfg(test)]
 mod parser_tests;
@@ -205,7 +206,10 @@ impl Frontend {
         let mut ctx = ParsingContext::new(lexer);
 
         match ctx.parse(self) {
-            Ok(module) => {
+            Ok(mut module) => {
+                if let Err(error) = order::order_functions(&mut module) {
+                    self.errors.push(error);
+                }
                 if self.errors.is_empty() {
                     Ok(module)
                 } else {
