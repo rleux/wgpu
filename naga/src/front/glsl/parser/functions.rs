@@ -7,7 +7,7 @@ use crate::{
     front::glsl::{
         ast::ParameterQualifier,
         context::Context,
-        parser::ParsingContext,
+        parser::{types::check_precision_qualifier, ParsingContext},
         token::{Token, TokenValue},
         variables::VarDeclaration,
         Error, ErrorKind, Frontend, Result,
@@ -18,24 +18,53 @@ use crate::{
 impl ParsingContext<'_> {
     pub fn peek_parameter_qualifier(&mut self, frontend: &mut Frontend) -> bool {
         self.peek(frontend).is_some_and(|t| match t.value {
-            TokenValue::In | TokenValue::Out | TokenValue::InOut | TokenValue::Const => true,
+            TokenValue::In
+            | TokenValue::Out
+            | TokenValue::InOut
+            | TokenValue::Const
+            | TokenValue::PrecisionQualifier(_) => true,
             _ => false,
         })
     }
 
-    /// Returns the parsed `ParameterQualifier` or `ParameterQualifier::In`
-    pub fn parse_parameter_qualifier(&mut self, frontend: &mut Frontend) -> ParameterQualifier {
-        if self.peek_parameter_qualifier(frontend) {
-            match self.bump(frontend).unwrap().value {
-                TokenValue::In => ParameterQualifier::In,
-                TokenValue::Out => ParameterQualifier::Out,
-                TokenValue::InOut => ParameterQualifier::InOut,
-                TokenValue::Const => ParameterQualifier::Const,
+    /// Returns the parameter qualifier and the span of any precision qualifier.
+    pub fn parse_parameter_qualifier(
+        &mut self,
+        frontend: &mut Frontend,
+    ) -> Result<(ParameterQualifier, Option<Span>)> {
+        let mut input = false;
+        let mut output = false;
+        let mut constant = false;
+        let mut precision_span = None;
+        while self.peek_parameter_qualifier(frontend) {
+            let token = self.bump(frontend)?;
+            let duplicate = match token.value {
+                TokenValue::In => core::mem::replace(&mut input, true),
+                TokenValue::Out => core::mem::replace(&mut output, true),
+                TokenValue::InOut => {
+                    let duplicate = input || output;
+                    input = true;
+                    output = true;
+                    duplicate
+                }
+                TokenValue::Const => core::mem::replace(&mut constant, true),
+                TokenValue::PrecisionQualifier(_) => precision_span.replace(token.meta).is_some(),
                 _ => unreachable!(),
+            };
+            if duplicate || (constant && output) {
+                return Err(Error {
+                    kind: ErrorKind::SemanticError("conflicting parameter qualifiers".into()),
+                    meta: token.meta,
+                });
             }
-        } else {
-            ParameterQualifier::In
         }
+        let qualifier = match (constant, input, output) {
+            (true, _, _) => ParameterQualifier::Const,
+            (_, true, true) => ParameterQualifier::InOut,
+            (_, _, true) => ParameterQualifier::Out,
+            _ => ParameterQualifier::In,
+        };
+        Ok((qualifier, precision_span))
     }
 
     pub fn parse_statement(
@@ -628,8 +657,11 @@ impl ParsingContext<'_> {
 
         loop {
             if self.peek_type_name(frontend) || self.peek_parameter_qualifier(frontend) {
-                let qualifier = self.parse_parameter_qualifier(frontend);
-                let mut ty = self.parse_type_non_void(frontend, ctx)?.0;
+                let (qualifier, precision_span) = self.parse_parameter_qualifier(frontend)?;
+                let (mut ty, _) = self.parse_type_non_void(frontend, ctx)?;
+                if let Some(meta) = precision_span {
+                    check_precision_qualifier(ctx, ty, meta)?;
+                }
 
                 match self.expect_peek(frontend)?.value {
                     TokenValue::Comma => {
