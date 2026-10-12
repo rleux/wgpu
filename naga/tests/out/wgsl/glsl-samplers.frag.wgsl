@@ -110,8 +110,8 @@ fn testTex1D(coord: f32) {
     let _e162 = textureLoad(tex1D, i32(_e159), 3i);
     c = _e162;
     let _e163 = coord_1;
-    let _e166 = textureLoad(tex1D, i32(_e163), 3i);
-    c = _e166;
+    let _e168 = textureLoad(tex1D, (i32(_e163) + 5i), 3i);
+    c = _e168;
     return;
 }
 
@@ -224,14 +224,14 @@ fn testTex2D(coord_2: vec2<f32>) {
     let _e278 = textureLoad(itex2D, vec2<i32>(_e275), 3i);
     c_1 = vec4<f32>(_e278);
     let _e280 = coord_3;
-    let _e283 = textureLoad(tex2D, vec2<i32>(_e280), 3i);
-    c_1 = _e283;
-    let _e284 = coord_3;
-    let _e287 = textureLoad(utex2D, vec2<i32>(_e284), 3i);
-    c_1 = vec4<f32>(_e287);
-    let _e289 = coord_3;
-    let _e292 = textureLoad(itex2D, vec2<i32>(_e289), 3i);
-    c_1 = vec4<f32>(_e292);
+    let _e286 = textureLoad(tex2D, (vec2<i32>(_e280) + vec2(5i)), 3i);
+    c_1 = _e286;
+    let _e287 = coord_3;
+    let _e293 = textureLoad(utex2D, (vec2<i32>(_e287) + vec2(5i)), 3i);
+    c_1 = vec4<f32>(_e293);
+    let _e295 = coord_3;
+    let _e301 = textureLoad(itex2D, (vec2<i32>(_e295) + vec2(5i)), 3i);
+    c_1 = vec4<f32>(_e301);
     return;
 }
 
@@ -345,8 +345,8 @@ fn testTex2DArray(coord_6: vec3<f32>) {
     c_2 = _e81;
     let _e82 = coord_7;
     let _e83 = vec3<i32>(_e82);
-    let _e87 = textureLoad(tex2DArray, _e83.xy, _e83.z, 3i);
-    c_2 = _e87;
+    let _e90 = textureLoad(tex2DArray, (_e83.xy + vec2(5i)), _e83.z, 3i);
+    c_2 = _e90;
     return;
 }
 
@@ -545,8 +545,8 @@ fn testTex3D(coord_18: vec3<f32>) {
     let _e159 = textureLoad(tex3D, vec3<i32>(_e156), 3i);
     c_5 = _e159;
     let _e160 = coord_19;
-    let _e163 = textureLoad(tex3D, vec3<i32>(_e160), 3i);
-    c_5 = _e163;
+    let _e166 = textureLoad(tex3D, (vec3<i32>(_e160) + vec3(5i)), 3i);
+    c_5 = _e166;
     return;
 }
 

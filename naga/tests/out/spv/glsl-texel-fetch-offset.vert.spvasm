@@ -1,0 +1,97 @@
+; SPIR-V
+; Version: 1.1
+; Generator: rspirv
+; Bound: 71
+OpCapability Shader
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical GLSL450
+OpEntryPoint Vertex %63 "main" %58 %61
+OpMemberDecorate %10 0 Offset 0
+OpDecorate %11 DescriptorSet 0
+OpDecorate %11 Binding 0
+OpDecorate %13 NonWritable
+OpDecorate %13 DescriptorSet 0
+OpDecorate %13 Binding 2
+OpDecorate %58 Location 0
+OpDecorate %61 BuiltIn Position
+%2 = OpTypeVoid
+%4 = OpTypeFloat 32
+%3 = OpTypeImage %4 2D 0 1 0 1 Unknown
+%5 = OpTypeImage %4 2D 0 0 0 2 Rgba32f
+%7 = OpTypeInt 32 1
+%6 = OpTypeVector %7 3
+%8 = OpTypeVector %4 4
+%9 = OpTypeVector %7 2
+%10 = OpTypeStruct %8
+%12 = OpTypePointer UniformConstant %3
+%11 = OpVariable  %12  UniformConstant
+%14 = OpTypePointer UniformConstant %5
+%13 = OpVariable  %14  UniformConstant
+%16 = OpTypePointer Private %6
+%17 = OpConstantNull  %6
+%15 = OpVariable  %16  Private %17
+%19 = OpTypePointer Private %8
+%20 = OpConstantNull  %8
+%18 = OpVariable  %19  Private %20
+%23 = OpTypeFunction %2
+%26 = OpConstant  %7  0
+%27 = OpConstant  %7  2
+%28 = OpConstant  %7  -1
+%29 = OpConstantComposite  %9  %27 %28
+%31 = OpTypePointer Function %8
+%32 = OpConstantNull  %8
+%34 = OpConstantNull  %8
+%36 = OpConstantNull  %8
+%59 = OpTypePointer Input %6
+%58 = OpVariable  %59  Input
+%62 = OpTypePointer Output %8
+%61 = OpVariable  %62  Output
+%22 = OpFunction  %2  None %23
+%21 = OpLabel
+%30 = OpVariable  %31  Function %32
+%33 = OpVariable  %31  Function %34
+%35 = OpVariable  %31  Function %36
+%24 = OpLoad  %3  %11
+%25 = OpLoad  %5  %13
+OpBranch %37
+%37 = OpLabel
+%38 = OpLoad  %6  %15
+%39 = OpVectorShuffle  %9  %38 %38 0 1
+%40 = OpCompositeExtract  %7  %38 2
+%41 = OpIAdd  %9  %39 %29
+%42 = OpCompositeConstruct  %6  %41 %40
+%43 = OpImageFetch  %8  %24 %42 Lod %26
+OpStore %30 %43
+%44 = OpLoad  %6  %15
+%45 = OpVectorShuffle  %9  %44 %44 0 1
+%46 = OpCompositeExtract  %7  %44 2
+%47 = OpCompositeConstruct  %6  %45 %46
+%48 = OpImageFetch  %8  %24 %47 Lod %26
+OpStore %33 %48
+%49 = OpLoad  %6  %15
+%50 = OpVectorShuffle  %9  %49 %49 0 1
+%51 = OpImageRead  %8  %25 %50
+OpStore %35 %51
+%52 = OpLoad  %8  %30
+%53 = OpLoad  %8  %33
+%54 = OpFAdd  %8  %52 %53
+%55 = OpLoad  %8  %35
+%56 = OpFAdd  %8  %54 %55
+OpStore %18 %56
+OpReturn
+OpFunctionEnd
+%63 = OpFunction  %2  None %23
+%57 = OpLabel
+%60 = OpLoad  %6  %58
+%64 = OpLoad  %3  %11
+%65 = OpLoad  %5  %13
+OpBranch %66
+%66 = OpLabel
+OpStore %15 %60
+%67 = OpFunctionCall  %2  %22
+%68 = OpLoad  %8  %18
+%69 = OpCompositeConstruct  %10  %68
+%70 = OpCompositeExtract  %8  %69 0
+OpStore %61 %70
+OpReturn
+OpFunctionEnd
