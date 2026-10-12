@@ -97,6 +97,7 @@ are read-only.
 */
 
 mod block;
+mod combined;
 mod f16_polyfill;
 mod helpers;
 mod image;
@@ -754,6 +755,8 @@ struct GlobalVariable {
     ///
     /// [`var_id`]: GlobalVariable::var_id
     access_id: Word,
+    /// Loaded combined sampled image, or zero for separate resources.
+    sampled_id: Word,
 }
 
 impl GlobalVariable {
@@ -762,6 +765,7 @@ impl GlobalVariable {
             var_id: 0,
             handle_id: 0,
             access_id: 0,
+            sampled_id: 0,
         }
     }
 
@@ -770,6 +774,7 @@ impl GlobalVariable {
             var_id: id,
             handle_id: 0,
             access_id: 0,
+            sampled_id: 0,
         }
     }
 
@@ -777,6 +782,7 @@ impl GlobalVariable {
     const fn reset_for_function(&mut self) {
         self.handle_id = 0;
         self.access_id = 0;
+        self.sampled_id = 0;
     }
 }
 
@@ -963,6 +969,11 @@ pub struct Writer {
     std140_compat_uniform_types: crate::FastHashMap<Handle<crate::Type>, Std140CompatTypeInfo>,
     fake_missing_bindings: bool,
     binding_map: BindingMap,
+    combined_image_sampler_bindings: Vec<(crate::ResourceBinding, crate::ResourceBinding)>,
+    combined_image_samplers:
+        crate::FastHashMap<Handle<crate::GlobalVariable>, Option<Handle<crate::GlobalVariable>>>,
+    combined_sampler_images:
+        crate::FastHashMap<Handle<crate::GlobalVariable>, Handle<crate::GlobalVariable>>,
 
     // Cached expressions are only meaningful within a BlockContext, but we
     // retain the table here between functions to save heap allocations.

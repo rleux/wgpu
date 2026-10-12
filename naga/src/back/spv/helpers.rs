@@ -3,7 +3,25 @@ use alloc::{vec, vec::Vec};
 use arrayvec::ArrayVec;
 use spirv::Word;
 
-use crate::{Handle, UniqueArena};
+use crate::{valid::FunctionInfo, Handle, UniqueArena};
+
+/// Whether the entry point's globals and stage allow emitting this function.
+///
+/// The entry point and its callees determine which globals are emitted.
+/// Functions needing other globals must be skipped. Validation rejects calls to
+/// stage-incompatible functions, so those functions can also be skipped safely.
+/// When validation is disabled, `available_stages` is `ShaderStages::all()`,
+/// and the stage check does not filter functions. Stage errors must then be
+/// caught by downstream validation or compilation.
+pub(super) fn function_matches_entry_point(
+    function_info: &FunctionInfo,
+    entry_info: &FunctionInfo,
+) -> bool {
+    entry_info.dominates_global_use(function_info)
+        && function_info
+            .available_stages
+            .contains(entry_info.available_stages)
+}
 
 pub(super) fn bytes_to_words(bytes: &[u8]) -> Vec<Word> {
     bytes
@@ -149,7 +167,7 @@ pub fn global_needs_wrapper(ir_module: &crate::Module, var: &crate::GlobalVariab
 /// struct in the [`crate::AddressSpace::Uniform`] address space.
 pub fn is_uniform_matcx2_struct_member_access(
     ir_function: &crate::Function,
-    fun_info: &crate::valid::FunctionInfo,
+    fun_info: &FunctionInfo,
     ir_module: &crate::Module,
     pointer: Handle<crate::Expression>,
 ) -> bool {

@@ -223,6 +223,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### naga
 
+- Support combined image/sampler descriptors in SPIR-V output, including GLSL translation through the Naga CLI and binding resolution for the selected entry point.
 - Parse scalar GLSL combined 2D sampler uniforms and expose their image/sampler binding pairs.
 - Apply GLSL `texelFetchOffset` offsets to spatial coordinates without changing array layers.
 - Preserve buffer pointers when lowering GLSL runtime array length queries.
