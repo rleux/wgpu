@@ -223,6 +223,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### naga
 
+- Use natural layout for GLSL value structs and convert aggregate copies to and from buffer layouts.
 - Accept GLSL precision qualifiers on parameters and struct members, rejecting qualifier conflicts and invalid type combinations.
 - Accept standalone GLSL fragment output index zero while preserving dual-source blending.
 - Resolve GLSL calls through forward declarations and reject recursive call graphs.

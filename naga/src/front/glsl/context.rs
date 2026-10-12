@@ -75,6 +75,7 @@ pub(crate) struct Context<'a> {
     pub const_typifier: Typifier,
     pub typifier: Typifier,
     layouter: Layouter,
+    value_type_cache: FastHashMap<Handle<Type>, Handle<Type>>,
     emitter: Emitter,
     stmt_ctx: Option<StmtContext>,
     pub body: Block,
@@ -107,6 +108,7 @@ impl<'a> Context<'a> {
             const_typifier: Typifier::new(),
             typifier: Typifier::new(),
             layouter: Layouter::default(),
+            value_type_cache: FastHashMap::default(),
             emitter: Emitter::default(),
             stmt_ctx: Some(StmtContext::new()),
             body: Block::new(),
@@ -268,6 +270,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn add_expression(&mut self, expr: Expression, meta: Span) -> Result<Handle<Expression>> {
+        let is_load = matches!(expr, Expression::Load { .. });
         let mut eval = if self.is_const {
             crate::proc::ConstantEvaluator::for_glsl_module(
                 self.module,
@@ -285,10 +288,86 @@ impl<'a> Context<'a> {
             )
         };
 
-        eval.try_eval_and_append(expr, meta).map_err(|e| Error {
+        let handle = eval.try_eval_and_append(expr, meta).map_err(|e| Error {
             kind: e.into(),
             meta,
-        })
+        })?;
+        if is_load {
+            let source = self.resolve_type_handle(handle, meta)?;
+            let target = self.value_type_for(source, meta)?;
+            self.convert_layout(handle, target, meta)
+        } else {
+            Ok(handle)
+        }
+    }
+
+    fn value_type_for(&mut self, ty: Handle<Type>, meta: Span) -> Result<Handle<Type>> {
+        if !matches!(
+            self.module.types[ty].inner,
+            TypeInner::Array { .. } | TypeInner::Struct { .. }
+        ) {
+            return Ok(ty);
+        }
+        if let Some(&value_ty) = self.value_type_cache.get(&ty) {
+            return Ok(value_ty);
+        }
+        let mut errors = Vec::new();
+        let value_ty = super::offset::calculate_offset(
+            ty,
+            meta,
+            super::ast::StructLayout::Std430,
+            &mut self.module.types,
+            &mut errors,
+        )
+        .ty;
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+        self.value_type_cache.insert(ty, value_ty);
+        Ok(value_ty)
+    }
+
+    fn convert_layout(
+        &mut self,
+        value: Handle<Expression>,
+        target: Handle<Type>,
+        meta: Span,
+    ) -> Result<Handle<Expression>> {
+        let source = self.resolve_type_handle(value, meta)?;
+        if source == target {
+            return Ok(value);
+        }
+        if self.value_type_for(source, meta)? != self.value_type_for(target, meta)? {
+            // Leave type mismatches for validation.
+            return Ok(value);
+        }
+        let component_types: Vec<_> = match self.module.types[target].inner {
+            TypeInner::Array {
+                base,
+                size: crate::ArraySize::Constant(size),
+                ..
+            } => core::iter::repeat_n(base, size.get() as usize).collect(),
+            TypeInner::Struct { ref members, .. } => members.iter().map(|m| m.ty).collect(),
+            _ => return Ok(value),
+        };
+        let mut components = Vec::with_capacity(component_types.len());
+        for (index, ty) in component_types.into_iter().enumerate() {
+            let component = self.add_expression(
+                Expression::AccessIndex {
+                    base: value,
+                    index: index as u32,
+                },
+                meta,
+            )?;
+            components.push(self.convert_layout(component, ty, meta)?);
+        }
+        self.add_expression(
+            Expression::Compose {
+                ty: target,
+                components,
+            },
+            meta,
+        )
     }
 
     /// Add variable to current scope
@@ -479,7 +558,7 @@ impl<'a> Context<'a> {
         Ok((expr, meta))
     }
 
-    fn lower_store(
+    pub(super) fn lower_store(
         &mut self,
         pointer: Handle<Expression>,
         value: Handle<Expression>,
@@ -531,6 +610,12 @@ impl<'a> Context<'a> {
                 );
             }
         } else {
+            let value =
+                if let TypeInner::Pointer { base, .. } = *self.resolve_type(pointer, meta)? {
+                    self.convert_layout(value, base, meta)?
+                } else {
+                    value
+                };
             self.emit_restart();
 
             self.body.push(Statement::Store { pointer, value }, meta);
