@@ -223,6 +223,7 @@ By @sagudev in [#10307](https://github.com/gfx-rs/wgpu/pull/10307).
 
 #### naga
 
+- Preserve buffer pointers when lowering GLSL runtime array length queries.
 - Spill GLSL vector component output arguments to preserve function copy-in and copy-back semantics.
 - Use natural layout for GLSL value structs and convert aggregate copies to and from buffer layouts.
 - Accept GLSL precision qualifiers on parameters and struct members, rejecting qualifier conflicts and invalid type combinations.
